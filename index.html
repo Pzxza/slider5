@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>หน้าปัด (ส่งข้อมูลเมื่อปล่อยสไลเดอร์)</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f2f5;
+            flex-direction: column;
+            gap: 30px;
+        }
+        .gauge-container {
+            position: relative;
+            width: 300px;
+            height: 150px;
+        }
+        .gauge-body {
+            width: 100%;
+            height: 100%;
+            background: #e9e9e9;
+            border-top-left-radius: 150px;
+            border-top-right-radius: 150px;
+            border: 10px solid #dcdcdc;
+            box-sizing: border-box;
+            position: relative;
+            overflow: hidden;
+        }
+        .gauge-value {
+            position: absolute;
+            bottom: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 28px;
+            font-weight: bold;
+            color: #333;
+            z-index: 10;
+        }
+        .gauge-needle {
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            width: 4px;
+            height: 120px;
+            background-color: #ff4d4d;
+            transform-origin: bottom center;
+            transform: translateX(-50%) rotate(-90deg);
+            transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+            border-radius: 2px;
+            z-index: 5;
+        }
+        .gauge-tick {
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            width: 2px;
+            height: 100%;
+            transform-origin: bottom center;
+        }
+        .gauge-tick::before {
+            content: '';
+            position: absolute;
+            top: 10px;
+            left: -1px;
+            width: 2px;
+            height: 10px;
+            background-color: #888;
+        }
+        .gauge-tick-label {
+            position: absolute;
+            top: 25px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 14px;
+            font-weight: 500;
+            color: #555;
+        }
+        .slider-wrapper {
+            position: relative;
+            width: 350px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .slider-label {
+            font-size: 16px;
+            color: #666;
+            font-weight: bold;
+        }
+        .slider-tooltip {
+            position: absolute;
+            bottom: 40px;
+            background-color: #333;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s, visibility 0.2s;
+            pointer-events: none;
+        }
+        .slider-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #333 transparent transparent transparent;
+        }
+        .slider-tooltip.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+        .slider {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 15px;
+            background: #ddd;
+            outline: none;
+            border-radius: 8px;
+        }
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 25px;
+            height: 25px;
+            background: #007bff;
+            cursor: pointer;
+            border-radius: 50%;
+        }
+    </style>
+</head>
+<body>
+
+    <h2 id="connectionStatus">กำลังเชื่อมต่อกับ Firebase...</h2>
+
+    <div class="gauge-container">
+        <div id="gaugeBody" class="gauge-body">
+            <div id="gaugeNeedle" class="gauge-needle"></div>
+        </div>
+        <div id="valueText" class="gauge-value">0</div>
+    </div>
+
+    <div class="slider-wrapper">
+        <span class="slider-label">0</span>
+        <input type="range" min="0" max="100" value="0" class="slider" id="valueSlider" disabled>
+        <span class="slider-label">100</span>
+        <div id="sliderTooltip" class="slider-tooltip">0</div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ใช้ Firebase Config เดิมของคุณได้เลย
+        const firebaseConfig = {
+            apiKey: "AIzaSyAXEZdK3Uo7j5Xvor07M5s_7SJE67eLnyo",
+            authDomain: "pzx-989e1.firebaseapp.com",
+            projectId: "pzx-989e1",
+            storageBucket: "pzx-989e1.firebasestorage.app",
+            messagingSenderId: "600460952877",
+            appId: "1:600460952877:web:586b6ade76be6f39413fa4",
+            measurementId: "G-KWEWWXJMNK"
+        };
+
+        // --- เริ่มต้น Firebase ---
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // --- อ้างอิงถึง Element ---
+        const slider = document.getElementById('valueSlider');
+        const needle = document.getElementById('gaugeNeedle');
+        const valueText = document.getElementById('valueText');
+        const gaugeBody = document.getElementById('gaugeBody');
+        const tooltip = document.getElementById('sliderTooltip');
+        const statusText = document.getElementById('connectionStatus');
+
+        // --- กำหนดตำแหน่งที่จะเก็บข้อมูล ---
+        const gaugeDocRef = doc(db, "gauge", "currentValue");
+        
+        // --- ฟังก์ชันสำหรับอัปเดต UI ทั้งหมด ---
+        function updateUI(value) {
+            const rotation = (value / 100) * 180 - 90;
+            needle.style.transform = `translateX(-50%) rotate(${rotation}deg)`;
+            valueText.textContent = value;
+            
+            tooltip.textContent = value;
+            const sliderWidth = slider.offsetWidth;
+            const thumbWidth = 25;
+            const percent = (value - slider.min) / (slider.max - slider.min);
+            const tooltipLeft = percent * (sliderWidth - thumbWidth) + (thumbWidth / 2) - (tooltip.offsetWidth / 2);
+            tooltip.style.left = `${tooltipLeft}px`;
+        }
+        
+        // --- 🆕 ส่วนที่แก้ไข ---
+
+        // 1. Event Listener สำหรับอัปเดต UI *ขณะที่กำลังเลื่อน*
+        //    Event นี้จะทำงานตลอดเวลาที่ผู้ใช้ลากสไลเดอร์เพื่ออัปเดตหน้าจอ
+        slider.addEventListener('input', () => {
+            const currentValue = slider.value;
+            // อัปเดตแค่หน้าจอ (หน้าปัดและตัวเลข) เพื่อให้ผู้ใช้เห็นการเปลี่ยนแปลงทันที
+            updateUI(currentValue);
+        });
+
+        // 2. Event Listener สำหรับส่งข้อมูลไป Firestore *เมื่อเลิกกดปุ่มเลื่อน*
+        //    Event นี้จะทำงานแค่ครั้งเดียว ตอนที่ผู้ใช้ปล่อยเมาส์
+        slider.addEventListener('change', () => {
+            const currentValue = slider.value;
+            console.log(`ส่งค่า ${currentValue} ไปยัง Firestore...`);
+            // ส่งข้อมูลไปบันทึกที่ Firestore
+            setDoc(gaugeDocRef, { value: Number(currentValue) })
+                .catch(error => console.error("Error writing document: ", error));
+        });
+        
+        // --- สิ้นสุดส่วนที่แก้ไข ---
+
+        // Event Listeners สำหรับแสดง/ซ่อน Tooltip
+        slider.addEventListener('mousedown', () => tooltip.classList.add('visible'));
+        document.addEventListener('mouseup', () => tooltip.classList.remove('visible'));
+
+        // สร้างตัวเลขบนหน้าปัด
+        for (let i = 0; i <= 100; i += 10) {
+            const tick = document.createElement('div');
+            tick.className = 'gauge-tick';
+            const label = document.createElement('div');
+            label.className = 'gauge-tick-label';
+            label.textContent = i;
+            const rotation = (i / 100) * 180 - 90;
+            tick.style.transform = `translateX(-50%) rotate(${rotation}deg)`;
+            label.style.transform = `translateX(-50%) rotate(${-rotation}deg)`;
+            tick.appendChild(label);
+            gaugeBody.appendChild(tick);
+        }
+
+        // การยืนยันตัวตนและเริ่มดึงข้อมูลแบบ Real-time
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                statusText.textContent = "ปรับค่าด้วยสไลเดอร์";
+                slider.disabled = false;
+
+                onSnapshot(gaugeDocRef, (doc) => {
+                    let currentValue = 0;
+                    if (doc.exists()) {
+                        currentValue = doc.data().value;
+                    } else {
+                        setDoc(gaugeDocRef, { value: 0 });
+                    }
+                    slider.value = currentValue;
+                    updateUI(currentValue);
+                }, (error) => {
+                    console.error("Error listening to document: ", error);
+                    statusText.textContent = "ไม่สามารถเชื่อมต่อ Firestore ได้";
+                });
+
+            } else {
+                signInAnonymously(auth).catch((error) => {
+                    console.error("Authentication Error:", error);
+                    statusText.textContent = "การยืนยันตัวตนล้มเหลว";
+                });
+            }
+        });
+
+    </script>
+
+</body>
+</html>
